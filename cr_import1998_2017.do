@@ -1,19 +1,32 @@
+cd E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData
 clear
-use commodity cty_code cty_subco dist_entry gen_val_yr year sic naics using  imp_detl_yearly_98n,clear
+use  cty_code  gen_val_yr year sic naics using imp_detl_yearly_98n,clear
+keep if cty_code == 5700
+save "./../data98n.dta",replace
 
-save "./../data98n.dta"
-
-use data98n
+save data98n, replace
+use E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData\data98n, replace
+cd ./Import98_2017
 local peter_dta : dir . files"*.dta"
 foreach file of local peter_dta {
 *drop _all
    display "using file `file'"
+   use cty_code gen_val_yr year sic naics using `file',clear
+   keep if cty_code == 5700
+   save CN_`file'
+ *  append  using  `file'
+}
+use E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData\data98n,clear
+local cn_peter_dta : dir . files"CN_*.dta"
+foreach file of local cn_peter_dta {
+*drop _all
+   display "using file `file'"
    append  using  `file'
 }
-
-
-only need the following variables
- keep commodity cty_code cty_subco dist_entry gen_val_yr year sic naics2
+drop cty_code
+save imp_cn1998_2017,replace
+*only need the following variables
+* keep commodity cty_code cty_subco dist_entry gen_val_yr year sic naics
 /*
 to calculate the changes in import values  
 
@@ -37,27 +50,10 @@ piship          float   %9.0g                 Deflator for VSHIP 1997=1.000
 
 
 * 1991
-only need the following variables
-use commodity cty_code cty_subco dist_entry gen_val_yr year sic naics2 using  exp_detl_yearly_91n,clear
-
-now only have exp91 naics
-
-bysort naics : egen exp91_ind = total(exp91)
-egen tagnaics = tag(naics exp91_ind)
-
-
-
-**import 
-now only have imp91 naics
-
-bysort naics : egen exp91_ind = total(imp91)
-egen tagnaics = tag(naics imp91_ind)
-
+ 
 *merge with NBER
 
 
 *aggregate trade data98n
 *aggregate trade data98n
-bysort naics : egen total_imp_val = total(gen_val_yr)
-egen tagnaics = tag(naics total_imp_val)
  

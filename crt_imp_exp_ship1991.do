@@ -1,15 +1,39 @@
 log using "E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\Day1.smcl"
-cd E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data
+cd E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData
 /*
 only need the following variables
 use commodity cty_code cty_subco dist_entry gen_val_yr year sic naics2 using  exp_detl_yearly_91n,clear
+Input:
+use imp_detl_yearly_91n.dta
+use exp_detl_yearly_91n.dta
 
-after agregate, imp91.dta only have total import values of each naics
+Output:
+total import in each naics: imp91_ind imp91.dta
+total export in each naics: exp91_ind in exp91.dta
+imp91_exp91_merged.dta : merge imp91 and exp91 
+
+*
+use imp_detl_yearly_91n.dta
+after agregate, imp91.dta only have total U.S. import values of each naics
+save imp91.dta,
+*
+use exp_detl_yearly_91n.dta
+after agregate, emp91.dta only have total U.S. export values of each naics
+save exp91.dta
+Merge with NBER-1991 Vshipment
+ ship_imp_exp91.dta
 */
+// 5700 5,147,074 14.61 
+// 5800 1,061,423     3.01
+// 5830 |  1,642,443      4.66     
+// 5880 |  2,102,058   5.97
 
-CHINA M cty_code 5700
-CHINA T cty_code 5830
+*CHINA M cty_code 5700
+*CHINA T cty_code 5830
 **********************************************************************************
+* Employment data: CBP-Current Business Pattern
+* CES-Current Employment Servey
+*https://www.census.gov/programs-surveys/cbp.html
 *  Step1 1991 data
 **********************************************************************************
 ** Export 91
@@ -20,7 +44,7 @@ CHINA T cty_code 5830
 use exp_detl_yearly_91n.dta
 
 * Check total exported values
-sum all_val_year
+sum all_val_yr
 disp %19.6gc r(sum)
 *421,853,582,099
 
@@ -28,8 +52,9 @@ disp %19.6gc r(sum)
 * shows U.S total export is: 421,555 million.
 * https://www.statista.com/statistics/186577/volume-of-us-exports-of-trade-goods-to-the-world-since-1987/
 * show 421.73 Billion
+* nber shows 400,842,402,497
 * Check total exported to China
-sum all_val_year if cty_code == 5700
+sum all_val_yr if cty_code == 5700
 disp %19.6gc r(sum)
 * 6,286,832,744
 
@@ -37,10 +62,17 @@ disp %19.6gc r(sum)
 * https://www.census.gov/foreign-trade/balance/c5700.html#1991
 *in millions of U.S. dollars on a nominal basis, not seasonally adjusted unless otherwise specified.
 ** 6,278.2
-keep naics all_val_year
-bysort naics : egen exp91_ind = total(all_val_year)
-egen tagnaics = tag(naics exp91_ind)
+keep naics all_val_yr
 save exp91.dta, replace
+bysort naics : egen exp91_ind = total(all_val_yr)
+*Aggregagte all export 
+egen tagnaics = tag(naics exp91_ind)
+keep if (tagnaics==1)
+keep naics exp91_ind
+ 
+save exp91.dta, replace
+* Contains data from exp91.dta
+*  obs:           454  
 
 **********************************************************************************
 ** import 91
@@ -52,7 +84,7 @@ save exp91.dta, replace
 use imp_detl_yearly_91n.dta
 * Check total imported values
 
-sum gen_val_year
+sum gen_val_yr
 disp %19.6gc r(sum)
 *488,122,838,063
 
@@ -62,7 +94,7 @@ disp %19.6gc r(sum)
 
 
 * Check total imported to China
-sum gen_val_year if cty_code == 5700
+sum gen_val_yr if cty_code == 5700
 disp %19.6gc r(sum)
 *  18,975,797,651
 
@@ -73,30 +105,33 @@ disp %19.6gc r(sum)
 
 keep naics gen_val_yr
 bysort naics  : egen imp91_ind = total(gen_val_yr)
+* Aggregate all import by naicscode
 egen tagnaics = tag(naics imp91_ind)
+keep if tagnaics==1
+keep naics imp91_ind
 save imp91.dta, replace
+* observations: 458  
 *****************************************************************************
 ** Merge 1991 import + export 
 **
 * Merge 91imp with 91 exp_*
 *
-use "E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData\exp91.dta"
-sum exp91_ind
-list exp91_ind in 1/10
-use imp91
+* Memory Data---imp91.dta
 sum imp91_ind
 
 /*
-Merge imp91 with exp91
+Merge imp91 with exp91.dta
 */
-use imp91
-merge 1:1 naics using exp91
-
+merge 1:1 naics using exp91, gen(imp_exp_indicator)
+tab imp_exp_indicator
 * Keep only mached records
-drop if _merge !=3
-save imp_exp91
+* assert(imp_exp_indicator==3)
+drop if imp_exp_indicator != 3
+drop imp_exp_indicator
+save imp91_exp91_merged, replace
 
-use imp_exp91
+use imp91_exp91_merged
+
 
 
 **********************************************************************************
@@ -108,42 +143,116 @@ use imp_exp91
 * naics: str6 %9s, NAICS 1997 6-digit industry
 * emp: double %9.0g (total employment in 1000s)
 * prode: 
-*aggregate trade data98n
+* aggregate trade data98n
 
 * Merge VShip with imp1991 + exp1991
-use nberces1991
-sum emp
-d vship
-sum vship
+use nberces5818v1_n1997.dta,clear
+keep if year==1991
+keep naics vship
+* 473 records left
+save nberces_clean_1991, replace
+describe vship
+summary vship
+tostring naics,replace
+merge 1:1 naics using imp91_exp91_merged, gen(imp_exp91_nberces91)
+tab imp_exp91_nberces91
+keep if imp_exp91_nberces91 == 3
+drop imp_exp91_nberces91
+save ship_imp_exp91, replace
 
-merge 1:1 naics using imp_exp91, gen(last)
-keep if last ==3
-save ship_imp_exp, replace
+* Finish 1991 merge now.
+/**************************************************************************
+*
+* ok_all_trade.dta 
+* US import Only from China
+**************************************************************************/
+* E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData
+use agg_No_imp_cn1998_2017,clear
+bysort year naics: egen  total_imp = total(gen_val_yr)
+egen tagyearnaics = tag(year naics  total_imp)
+tab year if tagyearnaics==1
+keep if tagyearnaics==1
+keep year naics  total_imp
+save agg_imp_cn1998_2017, replace
 
-bysort naics : egen total_imp_val = total(gen_val_yr)
-egen tagnaics = tag(naics total_imp_val)
-sum *ind
+*** Merge with ship_imp_exp91
+egen tagnaics = tag(naics exp91_ind)
+cd ../
+use agg_imp_cn1998_2017 , clear
+merge m:1 naics using ship_imp_exp91, gen(trade_impexpship91_ind)
+/*
+ Result                           # of obs.
+    -----------------------------------------
+    not matched                         1,528
+        from master                     1,526  (trade_impexpship91_ind==1)
+        from using                          2  (trade_impexpship91_ind==2)
 
-use ship_imp_exp
+    matched                             6,767  (trade_impexpship91_ind==3)
+*/
 
-drop ship_imp*
+tab trade_impexpship91_ind
 
+tab  year  if (trade_impexpship91_ind==3)
+keep if trade_impexpship91_ind==3
+drop trade_impexpship91_ind
+save cn_trade_ip.dta,replace
 
-use us_imp_from_cn
-d
-sum *ind
-drop *ind
-save
-use data98n
-clear
-use data98n
-merge m:1 naics using ship_imp_exp91
-merge m:1 naics using ship_imp_exp91, gen(lasts)
-keep if lasts==3
-save ok_all_trade.dta
+use  cn_trade_ip.dta, clear
 list in 1/10
-gen ip= gen_val_yr/ (vship*10^6+ imp91_ind- exp91_ind)
+*assert total_imp<. & total_imp>0
+list if !(total_imp<. & total_imp>0)
+
+
+gen ip= total_imp/ (vship*10^6+ imp91_ind- exp91_ind) if !missing(vship*10^6+ imp91_ind- exp91_ind)
+
 sum ip
+tabstat ip, by(year) stat(mean sd min max)
+/*
+    +-------------------------------------------------------------+
+      | year    naics   total_~p   vship   imp91_~d   exp91_~d   ip |
+      |-------------------------------------------------------------|
+2171. | 2012   325193          0   949.8   8.43e+07   7.88e+07    0 |
+*/
+/*
+domestic absortion in 1991 is Negative
+
+-------------------------------------+
+     |  naics   vship   imp91_~d   exp91_~d |
+     |--------------------------------------|
+226. | 332992   941.5   1.76e+08   1.78e+09 |
+     +--------------------------------------+
+
+*/	
+/*
+     by categories of: year 
+
+    year |      mean        sd       min       max
+---------+----------------------------------------
+    1998 |  .0502087  .1425457 -.0009407  1.849173
+    1999 |  .0568846  .1504117 -.0005533  1.803446
+    2000 |  .0678088   .167264  -.000152  1.731528
+    2001 |  .0703063  .1673994 -.0003077  1.565878
+    2002 |  .0825503  .1876796 -.0023925  1.555918
+    2003 |  .0977552  .2116956 -.0027399  1.551198
+    2004 |  .1216746  .2466888 -.0060887  1.582364
+    2005 |  .1447851  .2851143 -.0100641   1.95776
+    2006 |  .1692945  .3188728 -.0143527  2.264317
+    2007 |  .1808545  .3336849 -.0166271  2.715583
+    2008 |  .1875236  .3318657 -.0154663  2.884392
+    2009 |  .1592858  .2924323 -.0120804  2.506016
+    2010 |  .1937725  .3477125   -.02161  2.650004
+    2011 |  .2094708  .3517574 -.0252595  2.313874
+    2012 |  .2228657  .3813989 -.0257795  2.698017
+    2013 |  .1845522  .3439232  -.030613  2.657359
+    2014 |  .1951266  .3326605 -.0308143  2.934416
+    2015 |  .2066246  .3561391  -.031677   3.05329
+    2016 |  .2007112  .3561616 -.0249175  2.978155
+    2017 |  .2198579  .3963885 -.0175246  3.576622
+---------+----------------------------------------
+   Total |  .1467557  .2960469  -.031677  3.576622
+--------------------------------------------------
+
+*/ 
 sum *_ind vship
 drop _merge
 save, replace
