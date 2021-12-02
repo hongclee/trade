@@ -1,0 +1,411 @@
+log using "E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\Day1.smcl"
+cd E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData
+/*
+only need the following variables
+use commodity cty_code cty_subco dist_entry gen_val_yr year sic naics2 using  exp_detl_yearly_91n,clear
+Input:
+use imp_detl_yearly_91n.dta
+use exp_detl_yearly_91n.dta
+
+Output:
+total import in each naics: imp91_ind imp91.dta
+total export in each naics: exp91_ind in exp91.dta
+imp91_exp91_merged.dta : merge imp91 and exp91 
+
+*
+use imp_detl_yearly_91n.dta
+after agregate, imp91.dta only have total U.S. import values of each naics
+save imp91.dta,
+*
+use exp_detl_yearly_91n.dta
+after agregate, emp91.dta only have total U.S. export values of each naics
+save exp91.dta
+Merge with NBER-1991 Vshipment
+ ship_imp_exp91.dta
+*/
+// 5700 5,147,074 14.61 
+// 5800 1,061,423     3.01
+// 5830 |  1,642,443      4.66     
+// 5880 |  2,102,058   5.97
+
+*CHINA M cty_code 5700
+*CHINA T cty_code 5830
+**********************************************************************************
+* Employment data: CBP-Current Business Pattern
+* CES-Current Employment Servey
+*https://www.census.gov/programs-surveys/cbp.html
+*  Step1 1991 data
+**********************************************************************************
+** Export 91
+** Data: exp_detl_yearly_91n.dta
+** Variables
+** cty_code sic naics year 
+** all_val_year: total export values, 15-digit year-to-Date Total value
+use exp_detl_yearly_91n.dta
+
+* Check total exported values
+sum all_val_yr
+disp %19.6gc r(sum)
+*421,853,582,099
+
+*https://wits.worldbank.org/CountryProfile/en/Country/USA/Year/1991/Summarytext
+* shows U.S total export is: 421,555 million.
+* https://www.statista.com/statistics/186577/volume-of-us-exports-of-trade-goods-to-the-world-since-1987/
+* show 421.73 Billion
+* nber shows 400,842,402,497
+* Check total exported to China
+sum all_val_yr if cty_code == 5700
+disp %19.6gc r(sum)
+* 6,286,832,744
+
+* census.gov 
+* https://www.census.gov/foreign-trade/balance/c5700.html#1991
+*in millions of U.S. dollars on a nominal basis, not seasonally adjusted unless otherwise specified.
+** 6,278.2
+**  0.8802778 is the 1991 pce adjust ment with 1997 pce index==1
+
+keep naics all_val_yr
+save exp91.dta, replace
+bysort naics : egen exp91_ind = total(all_val_yr)
+replace exp91_ind = exp91_ind/ 0.8802778
+
+*Aggregagte all export 
+egen tagnaics = tag(naics exp91_ind)
+keep if (tagnaics==1)
+keep naics exp91_ind
+ 
+save exp91.dta, replace
+* Contains data from exp91.dta
+*  obs:           454  
+
+**********************************************************************************
+** import 91
+* now only have imp91 naics
+** Data: imp_detl_yearly_91n.dta
+** Variables
+** cty_code sic naics year 
+** gen_val_year: total export values, 15-digit year-to-Date Total value
+use imp_detl_yearly_91n.dta
+* Check total imported values
+
+sum gen_val_yr
+disp %19.6gc r(sum)
+*488,122,838,063
+
+* https://wits.worldbank.org/CountryProfile/en/Country/USA/Year/1991/Summarytext
+* shows that:
+* The U.S. total value of imports (CIF) was 508,944 million.
+
+
+* Check total imported to China
+sum gen_val_yr if cty_code == 5700
+disp %19.6gc r(sum)
+*  18,975,797,651
+
+* census.gov 
+* https://www.census.gov/foreign-trade/balance/c5700.html#1991
+*in millions of U.S. dollars on a nominal basis, not seasonally adjusted unless otherwise specified.
+** 18,969.2 million
+** scalar pce adjust with 1997 ==1
+** 1991 has adj value = .8802778
+* scalar pce1991=  .8802778
+keep naics gen_val_yr
+bysort naics  : egen imp91_ind = total(gen_val_yr)
+replace imp91_ind= imp91_ind/ 0.8802778
+* Aggregate all import by naicscode
+egen tagnaics = tag(naics imp91_ind)
+keep if tagnaics==1
+keep naics imp91_ind
+save imp91.dta, replace
+* observations: 458  
+*****************************************************************************
+** Merge 1991 import + export 
+**
+* Merge 91imp with 91 exp_*
+*
+* Memory Data---imp91.dta
+sum imp91_ind
+
+/*
+Merge imp91 with exp91.dta
+*/
+merge 1:1 naics using exp91, gen(imp_exp_indicator)
+tab imp_exp_indicator
+* Keep only mached records
+* assert(imp_exp_indicator==3)
+drop if imp_exp_indicator != 3
+drop imp_exp_indicator
+save imp91_exp91_merged, replace
+
+use imp91_exp91_merged
+
+
+
+**********************************************************************************
+** Merge with NBER 1991 data to get shipment data
+** Data nberces1991.dta
+** Downloaded from:
+** 
+** variables in nber:
+* naics: str6 %9s, NAICS 1997 6-digit industry
+* emp: double %9.0g (total employment in 1000s)
+* prode: 
+* aggregate trade data98n
+
+* Merge shipment (=VShip/piship) with imp1991 + exp1991
+use nberces5818v1_n1997.dta,clear
+keep if year==1991
+* vship/piship: need to appy the deflator by 1997==1
+gen shipement = vship/piship
+keep naics shipement
+* 473 records left
+save nberces_clean_1991, replace
+describe shipment
+summary shipment
+tostring naics,replace
+merge 1:1 naics using imp91_exp91_merged, gen(imp_exp91_nberces91)
+tab imp_exp91_nberces91
+keep if imp_exp91_nberces91 == 3
+drop imp_exp91_nberces91
+save ship_imp_exp91, replace
+
+* Finish 1991 merge now.
+/**************************************************************************
+*
+* ok_all_trade.dta 
+* US import Only from China
+* We use the pce-december
+* pce 1991.12=68.321, 1997.M12 ==77.613 
+*deflator:
+ *68.321/77.613 =0.88027779
+* in the original PCE index, 2012 as 100. we will not use
+* this baseline, to be consistent with shipment deflator baseline 1997==1
+* so the imp and exp need to multiply this value
+**************************************************************************/
+* E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData
+use agg_No_imp_cn1998_2017,clear
+* need to inflat
+*All import amounts are inflated to 2012 US dollars using
+* the Personal Consumption Expenditure Core(PCE) deflator
+
+bysort year naics: egen  total_imp = total(gen_val_yr)
+egen tagyearnaics = tag(year naics  total_imp)
+tab year if tagyearnaics==1
+keep if tagyearnaics==1
+keep year naics  total_imp
+save agg_imp_cn1998_2017, replace
+
+*** Merge with ship_imp_exp91
+egen tagnaics = tag(naics exp91_ind)
+cd ../
+use agg_imp_cn1998_2017 , clear
+merge m:1 naics using ship_imp_exp91, gen(trade_impexpship91_ind)
+/*
+ Result                           # of obs.
+    -----------------------------------------
+    not matched                         1,528
+        from master                     1,526  (trade_impexpship91_ind==1)
+        from using                          2  (trade_impexpship91_ind==2)
+
+    matched                             6,767  (trade_impexpship91_ind==3)
+*/
+
+tab trade_impexpship91_ind
+
+tab  year  if (trade_impexpship91_ind==3)
+keep if trade_impexpship91_ind==3
+*drop trade_impexpship91_ind
+save cn_trade_ip.dta,replace
+
+use  cn_trade_ip.dta, clear
+list in 1/10
+*assert total_imp<. & total_imp>0
+list if !(total_imp<. & total_imp>0)
+
+
+gen ip= total_imp/ (shipment*10^6+ imp91_ind- exp91_ind) if !missing(shipment*10^6+ imp91_ind- exp91_ind)
+
+sum ip
+tabstat ip, by(year) stat(mean sd min max)
+/*
+    +-------------------------------------------------------------+
+      | year    naics   total_~p   vship   imp91_~d   exp91_~d   ip |
+      |-------------------------------------------------------------|
+2171. | 2012   325193          0   949.8   8.43e+07   7.88e+07    0 |
+*/
+/*
+domestic absortion in 1991 is Negative
+
+-------------------------------------+
+     |  naics   vship   imp91_~d   exp91_~d |
+     |--------------------------------------|
+226. | 332992   941.5   1.76e+08   1.78e+09 |
+     +--------------------------------------+
+
+*/	
+
+. sum
+
+    Variable |        Obs        Mean    Std. Dev.       Min        Max
+-------------+---------------------------------------------------------
+        year |      6,767    2006.828    5.504677       1998       2017
+       naics |          0
+   total_imp |      6,767    7.33e+08    2.96e+09          0   7.61e+10
+       vship |      6,747    6398.887    11192.61      136.1   145391.5
+   imp91_ind |      6,767    1.08e+09    3.14e+09      74500   4.56e+10
+-------------+---------------------------------------------------------
+   exp91_ind |      6,767    9.65e+08    2.33e+09    2099200   2.50e+10
+          ip |      6,747    .1467557    .2960469   -.031677   3.576622
+
+/*
+     by categories of: year 
+
+    year |      mean        sd       min       max
+---------+----------------------------------------
+    1998 |  .0502087  .1425457 -.0009407  1.849173
+    1999 |  .0568846  .1504117 -.0005533  1.803446
+    2000 |  .0678088   .167264  -.000152  1.731528
+    2001 |  .0703063  .1673994 -.0003077  1.565878
+    2002 |  .0825503  .1876796 -.0023925  1.555918
+    2003 |  .0977552  .2116956 -.0027399  1.551198
+    2004 |  .1216746  .2466888 -.0060887  1.582364
+    2005 |  .1447851  .2851143 -.0100641   1.95776
+    2006 |  .1692945  .3188728 -.0143527  2.264317
+    2007 |  .1808545  .3336849 -.0166271  2.715583
+    2008 |  .1875236  .3318657 -.0154663  2.884392
+    2009 |  .1592858  .2924323 -.0120804  2.506016
+    2010 |  .1937725  .3477125   -.02161  2.650004
+    2011 |  .2094708  .3517574 -.0252595  2.313874
+    2012 |  .2228657  .3813989 -.0257795  2.698017
+    2013 |  .1845522  .3439232  -.030613  2.657359
+    2014 |  .1951266  .3326605 -.0308143  2.934416
+    2015 |  .2066246  .3561391  -.031677   3.05329
+    2016 |  .2007112  .3561616 -.0249175  2.978155
+    2017 |  .2198579  .3963885 -.0175246  3.576622
+---------+----------------------------------------
+   Total |  .1467557  .2960469  -.031677  3.576622
+--------------------------------------------------
+
+*/ 
+sum *_ind vship
+drop _merge
+save, replace
+est clear  // clear the est locals
+estpost tabstat
+est clear
+estpost tabstat *ind vship ip
+ssc install estout, replace
+estpost tabstat *ind vship ip  c(stat) stat(mean sd min max n)
+ereturn list
+estpost tabstat imp91_ind exp91_ind vship ip  c(stat) stat(mean sd min max n)
+sum imp91_ind exp91_ind vship ip
+estpost tabstat imp91_ind exp91_ind vship ip,  c(stat) stat(mean sd min max n)
+esttab, ///
+ cells("sum(fmt(%13.0fc)) mean(fmt(%13.2fc)) sd(fmt(%13.2fc)) min max count") nonumber ///
+  nomtitle nonote noobs label collabels("Sum" "Mean" "SD" "Min" "Max" "N")
+. format ip %11.4gc
+list ip in 1/10
+   
+   esttab using "./graphs/guide80/table1.tex", replace ////
+ cells("mean(fmt(%13.4fc)) sd(fmt(%134fc)) min max count") nonumber ///
+  nomtitle nonote noobs label booktabs f ///
+  collabels("Mean" "SD" "Min" "Max" "N")
+tab cty_code
+keep if cty_code ==5700
+d
+save formidterm.dta
+save, replace
+
+******************************
+tab year
+save, replace
+ls *imp*.dta
+use imp_exp91
+d
+drop _merge
+save, replace
+use ship_imp_exp91
+d
+drop _merge last
+save, replace
+use data98n
+list in 1/10
+use ok_all_trade
+list in 1/10
+d
+use data98n
+d
+bysort naics : egen total_imp_val = total(gen_val_yr)
+egen tagnaics = tag(naics total_imp_val)
+drop commo*
+d
+tab cty_code
+keep if cty_code ==5700
+d
+drop total_imp*
+drop tagna*
+d
+bysort naics : egen total_imp_val = total(gen_val_yr)
+egen tagnaics = tag(naics total_imp_val)
+tab tagnaics
+list in 1/10
+bysort naics(year) : replace total_imp_val = total(gen_val_yr)
+drop total_imp_val
+bysort year(naics) : egen total_imp_val = total(gen_val_yr)
+egen tagnaics = tag(year naics total_imp_val)
+drop tagnaics
+egen tagnaics = tag(year naics total_imp_val)
+keep if tagnaics==1
+d
+tab year
+d
+drop cty_*
+d
+drop dist_*
+d
+tag tagnaics
+tab tagnaics
+drop tagnaics
+d
+save, cleanTradeData
+save cleanTradeData.dta
+d
+merge m:1 naics using ship_imp_exp91
+keep if _merge==3
+list 1/10
+list in 1/10
+list in 1/20, sepby(year)
+sort year naics
+list in 1/20, sepby(year)
+drop _merge
+save
+save, replace
+list in 1/20, sepby(year)
+gen ip= gen_val_yr/ (vship*10^6+ imp91_ind- exp91_ind)
+sum ip
+d
+do "C:\Users\hcli\AppData\Local\Temp\STD1e44_000000.tmp"
+save, replace
+log close
+
+
+ //////
+
+esttab, ///
+ cells("sum(fmt(%13.0fc)) mean(fmt(%13.2fc)) sd(fmt(%13.2fc)) min max count") nonumber ///
+  nomtitle nonote noobs label collabels("Sum" "Mean" "SD" "Min" "Max" "N")
+  
+  esttab using "./result/table1.tex", replace ////
+ cells("sum(fmt(%13.0fc)) mean(fmt(%13.2fc)) sd(fmt(%13.2fc)) min max count") nonumber ///
+  nomtitle nonote noobs label booktabs f ///
+  collabels("Sum" "Mean" "SD" "Min" "Max" "N")
+  
+   estpost tabstat  total_imp_val imp91_ind exp91_ind vship ip,  c(stat) stat(mean sd min max n)
+   
+   esttab using "./result/ChinaOnly1.tex", replace ////
+ cells("mean(fmt(%13.4fc)) sd(fmt(%13.4fc)) min max count") nonumber ///
+  nomtitle nonote noobs label booktabs f ///
+  collabels("Mean" "SD" "Min" "Max" "N")
+
+*/
+

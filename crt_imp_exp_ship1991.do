@@ -62,9 +62,16 @@ disp %19.6gc r(sum)
 * https://www.census.gov/foreign-trade/balance/c5700.html#1991
 *in millions of U.S. dollars on a nominal basis, not seasonally adjusted unless otherwise specified.
 ** 6,278.2
-keep naics all_val_yr
+**  0.8802778 is the 1991 pce adjust ment with 1997 pce index==1
+
+keep sic naics all_val_yr
+
+replace all_val_yr = all_val_yr/0.8802778
 save exp91.dta, replace
+use exp91, clear
 bysort naics : egen exp91_ind = total(all_val_yr)
+
+
 *Aggregagte all export 
 egen tagnaics = tag(naics exp91_ind)
 keep if (tagnaics==1)
@@ -102,9 +109,14 @@ disp %19.6gc r(sum)
 * https://www.census.gov/foreign-trade/balance/c5700.html#1991
 *in millions of U.S. dollars on a nominal basis, not seasonally adjusted unless otherwise specified.
 ** 18,969.2 million
-
-keep naics gen_val_yr
+** scalar pce adjust with 1997 ==1
+** 1991 has adj value = .8802778
+* scalar pce1991=  .8802778
+keep sic naics gen_val_yr
+replace gen_val_yr = gen_val_yr/0.8802778
 bysort naics  : egen imp91_ind = total(gen_val_yr)
+*put the following adjust at the end of the merged file
+* replace imp91_ind= imp91_ind/ 0.8802778
 * Aggregate all import by naicscode
 egen tagnaics = tag(naics imp91_ind)
 keep if tagnaics==1
@@ -128,11 +140,13 @@ tab imp_exp_indicator
 * assert(imp_exp_indicator==3)
 drop if imp_exp_indicator != 3
 drop imp_exp_indicator
-save imp91_exp91_merged, replace
 
+gen naics5=substr(naics, 1,5)
+save imp91_exp91_merged, replace
 use imp91_exp91_merged
 
-
+ 
+ 
 
 **********************************************************************************
 ** Merge with NBER 1991 data to get shipment data
@@ -145,233 +159,27 @@ use imp91_exp91_merged
 * prode: 
 * aggregate trade data98n
 
-* Merge VShip with imp1991 + exp1991
+* Merge shipment (=VShip/piship) with imp1991 + exp1991
 use nberces5818v1_n1997.dta,clear
 keep if year==1991
-keep naics vship
+* vship/piship: need to appy the deflator by 1997==1
+gen shipment = vship/piship
+keep naics shipment
+tostring naics, replace
+gen naics5=substr(naics, 1,5)
+label variable naics5 "The first 5 digits of naics"
+label variable shipment "Deflator Adjusted shipment values" 
 * 473 records left
 save nberces_clean_1991, replace
-describe vship
-summary vship
+describe shipment
+summarize shipment
 tostring naics,replace
 merge 1:1 naics using imp91_exp91_merged, gen(imp_exp91_nberces91)
 tab imp_exp91_nberces91
 keep if imp_exp91_nberces91 == 3
 drop imp_exp91_nberces91
+ 
+
 save ship_imp_exp91, replace
 
 * Finish 1991 merge now.
-/**************************************************************************
-*
-* ok_all_trade.dta 
-* US import Only from China
-**************************************************************************/
-* E:\FinanceCourse\2021Fall\EconSeminar\project\trade_data\tradeData
-use agg_No_imp_cn1998_2017,clear
-bysort year naics: egen  total_imp = total(gen_val_yr)
-egen tagyearnaics = tag(year naics  total_imp)
-tab year if tagyearnaics==1
-keep if tagyearnaics==1
-keep year naics  total_imp
-save agg_imp_cn1998_2017, replace
-
-*** Merge with ship_imp_exp91
-egen tagnaics = tag(naics exp91_ind)
-cd ../
-use agg_imp_cn1998_2017 , clear
-merge m:1 naics using ship_imp_exp91, gen(trade_impexpship91_ind)
-/*
- Result                           # of obs.
-    -----------------------------------------
-    not matched                         1,528
-        from master                     1,526  (trade_impexpship91_ind==1)
-        from using                          2  (trade_impexpship91_ind==2)
-
-    matched                             6,767  (trade_impexpship91_ind==3)
-*/
-
-tab trade_impexpship91_ind
-
-tab  year  if (trade_impexpship91_ind==3)
-keep if trade_impexpship91_ind==3
-drop trade_impexpship91_ind
-save cn_trade_ip.dta,replace
-
-use  cn_trade_ip.dta, clear
-list in 1/10
-*assert total_imp<. & total_imp>0
-list if !(total_imp<. & total_imp>0)
-
-
-gen ip= total_imp/ (vship*10^6+ imp91_ind- exp91_ind) if !missing(vship*10^6+ imp91_ind- exp91_ind)
-
-sum ip
-tabstat ip, by(year) stat(mean sd min max)
-/*
-    +-------------------------------------------------------------+
-      | year    naics   total_~p   vship   imp91_~d   exp91_~d   ip |
-      |-------------------------------------------------------------|
-2171. | 2012   325193          0   949.8   8.43e+07   7.88e+07    0 |
-*/
-/*
-domestic absortion in 1991 is Negative
-
--------------------------------------+
-     |  naics   vship   imp91_~d   exp91_~d |
-     |--------------------------------------|
-226. | 332992   941.5   1.76e+08   1.78e+09 |
-     +--------------------------------------+
-
-*/	
-/*
-     by categories of: year 
-
-    year |      mean        sd       min       max
----------+----------------------------------------
-    1998 |  .0502087  .1425457 -.0009407  1.849173
-    1999 |  .0568846  .1504117 -.0005533  1.803446
-    2000 |  .0678088   .167264  -.000152  1.731528
-    2001 |  .0703063  .1673994 -.0003077  1.565878
-    2002 |  .0825503  .1876796 -.0023925  1.555918
-    2003 |  .0977552  .2116956 -.0027399  1.551198
-    2004 |  .1216746  .2466888 -.0060887  1.582364
-    2005 |  .1447851  .2851143 -.0100641   1.95776
-    2006 |  .1692945  .3188728 -.0143527  2.264317
-    2007 |  .1808545  .3336849 -.0166271  2.715583
-    2008 |  .1875236  .3318657 -.0154663  2.884392
-    2009 |  .1592858  .2924323 -.0120804  2.506016
-    2010 |  .1937725  .3477125   -.02161  2.650004
-    2011 |  .2094708  .3517574 -.0252595  2.313874
-    2012 |  .2228657  .3813989 -.0257795  2.698017
-    2013 |  .1845522  .3439232  -.030613  2.657359
-    2014 |  .1951266  .3326605 -.0308143  2.934416
-    2015 |  .2066246  .3561391  -.031677   3.05329
-    2016 |  .2007112  .3561616 -.0249175  2.978155
-    2017 |  .2198579  .3963885 -.0175246  3.576622
----------+----------------------------------------
-   Total |  .1467557  .2960469  -.031677  3.576622
---------------------------------------------------
-
-*/ 
-sum *_ind vship
-drop _merge
-save, replace
-est clear  // clear the est locals
-estpost tabstat
-est clear
-estpost tabstat *ind vship ip
-ssc install estout, replace
-estpost tabstat *ind vship ip  c(stat) stat(mean sd min max n)
-ereturn list
-estpost tabstat imp91_ind exp91_ind vship ip  c(stat) stat(mean sd min max n)
-sum imp91_ind exp91_ind vship ip
-estpost tabstat imp91_ind exp91_ind vship ip,  c(stat) stat(mean sd min max n)
-esttab, ///
- cells("sum(fmt(%13.0fc)) mean(fmt(%13.2fc)) sd(fmt(%13.2fc)) min max count") nonumber ///
-  nomtitle nonote noobs label collabels("Sum" "Mean" "SD" "Min" "Max" "N")
-. format ip %11.4gc
-list ip in 1/10
-   
-   esttab using "./graphs/guide80/table1.tex", replace ////
- cells("mean(fmt(%13.4fc)) sd(fmt(%134fc)) min max count") nonumber ///
-  nomtitle nonote noobs label booktabs f ///
-  collabels("Mean" "SD" "Min" "Max" "N")
-tab cty_code
-keep if cty_code ==5700
-d
-save formidterm.dta
-save, replace
-
-******************************
-tab year
-save, replace
-ls *imp*.dta
-use imp_exp91
-d
-drop _merge
-save, replace
-use ship_imp_exp91
-d
-drop _merge last
-save, replace
-use data98n
-list in 1/10
-use ok_all_trade
-list in 1/10
-d
-use data98n
-d
-bysort naics : egen total_imp_val = total(gen_val_yr)
-egen tagnaics = tag(naics total_imp_val)
-drop commo*
-d
-tab cty_code
-keep if cty_code ==5700
-d
-drop total_imp*
-drop tagna*
-d
-bysort naics : egen total_imp_val = total(gen_val_yr)
-egen tagnaics = tag(naics total_imp_val)
-tab tagnaics
-list in 1/10
-bysort naics(year) : replace total_imp_val = total(gen_val_yr)
-drop total_imp_val
-bysort year(naics) : egen total_imp_val = total(gen_val_yr)
-egen tagnaics = tag(year naics total_imp_val)
-drop tagnaics
-egen tagnaics = tag(year naics total_imp_val)
-keep if tagnaics==1
-d
-tab year
-d
-drop cty_*
-d
-drop dist_*
-d
-tag tagnaics
-tab tagnaics
-drop tagnaics
-d
-save, cleanTradeData
-save cleanTradeData.dta
-d
-merge m:1 naics using ship_imp_exp91
-keep if _merge==3
-list 1/10
-list in 1/10
-list in 1/20, sepby(year)
-sort year naics
-list in 1/20, sepby(year)
-drop _merge
-save
-save, replace
-list in 1/20, sepby(year)
-gen ip= gen_val_yr/ (vship*10^6+ imp91_ind- exp91_ind)
-sum ip
-d
-do "C:\Users\hcli\AppData\Local\Temp\STD1e44_000000.tmp"
-save, replace
-log close
-
-
- //////
-
-esttab, ///
- cells("sum(fmt(%13.0fc)) mean(fmt(%13.2fc)) sd(fmt(%13.2fc)) min max count") nonumber ///
-  nomtitle nonote noobs label collabels("Sum" "Mean" "SD" "Min" "Max" "N")
-  
-  esttab using "./result/table1.tex", replace ////
- cells("sum(fmt(%13.0fc)) mean(fmt(%13.2fc)) sd(fmt(%13.2fc)) min max count") nonumber ///
-  nomtitle nonote noobs label booktabs f ///
-  collabels("Sum" "Mean" "SD" "Min" "Max" "N")
-  
-   estpost tabstat  total_imp_val imp91_ind exp91_ind vship ip,  c(stat) stat(mean sd min max n)
-   
-   esttab using "./result/ChinaOnly1.tex", replace ////
- cells("mean(fmt(%13.4fc)) sd(fmt(%13.4fc)) min max count") nonumber ///
-  nomtitle nonote noobs label booktabs f ///
-  collabels("Mean" "SD" "Min" "Max" "N")
-
-*/
-
